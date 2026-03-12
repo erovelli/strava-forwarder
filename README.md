@@ -92,7 +92,7 @@ source .venv/bin/activate
 python3 main.py
 ```
 
-The script will fetch the five most recent Strava activities and update the corresponding rows in the `Tracker` worksheet of the configured Google Sheet. Each row is matched by date (column B), and the activity name and duration in minutes are written to columns G and H respectively.
+The script will fetch the five most recent Strava activities and update the corresponding rows in the `Tracker` worksheet of the configured Google Sheet. Each row is matched by date (column B), and the activity name and duration in minutes are written to columns G and H respectively. If multiple activities fall on the same date, their names are combined into a single comma-separated entry and their durations are summed.
 
 ## Google Sheet Format
 
@@ -103,3 +103,16 @@ The target worksheet must have dates pre-populated in column B using the format 
 | B | Date (`Mon DD`) |
 | G | Activity name |
 | H | Duration (minutes) |
+
+## Configuration
+
+The following constants at the top of `main.py` can be adjusted to match your sheet layout:
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `WORKSHEET_NAME` | `"Tracker"` | Name of the worksheet tab to write to |
+| `ACTIVITY_FETCH_COUNT` | `5` | Number of recent Strava activities to fetch and process |
+| `ACTIVITY_NAME_COLUMN` | `"G"` | Column letter where the activity name is written |
+| `ACTIVITY_TIME_COLUMN` | `"H"` | Column letter where the duration (minutes) is written |
+| `DATE_FORMAT_IN` | `"%Y-%m-%d"` | Date format returned by the Strava API |
+| `DATE_FORMAT_OUT` | `"%b %d"` | Date format used in column B of the sheet (e.g., `Feb 22`) |

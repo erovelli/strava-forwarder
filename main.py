@@ -16,6 +16,10 @@ WORKSHEET_NAME = "Tracker"
 DATE_FORMAT_IN = "%Y-%m-%d"
 DATE_FORMAT_OUT = "%b %d"
 
+ACTIVITY_NAME_COLUMN = "G"
+ACTIVITY_TIME_COLUMN = "H"
+ACTIVITY_FETCH_COUNT = 5
+
 
 # --- Data Model ---
 
@@ -87,7 +91,7 @@ class SheetsClient:
         worksheet = self._workbook.worksheet(worksheet_name)
         date_column = worksheet.col_values(2)
 
-        updates = []
+        by_row: dict[int, list[Activity]] = {}
         for activity in activities:
             sheet_date = datetime.strptime(activity.date, DATE_FORMAT_IN).strftime(
                 DATE_FORMAT_OUT
@@ -97,10 +101,16 @@ class SheetsClient:
             except ValueError:
                 print(f"No row found for date {sheet_date}, skipping '{activity.name}'")
                 continue
+            by_row.setdefault(row, []).append(activity)
+
+        updates = []
+        for row, day_activities in by_row.items():
+            names = ", ".join(a.name for a in day_activities)
+            total_duration = sum(a.duration for a in day_activities)
             updates.append(
                 {
-                    "range": f"G{row}:H{row}",
-                    "values": [[activity.name, activity.duration]],
+                    "range": f"{ACTIVITY_NAME_COLUMN}{row}:{ACTIVITY_TIME_COLUMN}{row}",
+                    "values": [[names, total_duration]],
                 }
             )
 
@@ -125,7 +135,7 @@ def main() -> None:
         sheet_id=os.environ["GOOGLE_SHEET_ID"],
     )
 
-    activities = strava.get_recent_activities()
+    activities = strava.get_recent_activities(count=ACTIVITY_FETCH_COUNT)
     sheets.write_activities(activities)
 
 
