@@ -59,9 +59,10 @@ Open the **Shortcuts** app, tap **+** to create a new shortcut, name it **Health
 
 1. **Find Health Samples**
    - Tap the pale blue **Type** field and choose **Exercise Minutes**.
+   - Tap **Add Filter** and set **Start Date** · **is in the last** · **7** · **days** (the last week — days already uploaded are harmlessly re-written). Use a bigger number like **100** to backfill history — see Part 4.
+   - Check that **Unit** is **min**.
    - Set **Group By: Day** — this is essential; it turns the raw samples into one total per day.
-   - Set **Sort by: Start Date** and **Order: Latest First**.
-   - Turn **Limit** on and set it to **7** (the last week — days already uploaded are harmlessly re-written). Use a bigger number like **100** to backfill history — see Part 4.
+   - Leave **Limit** turned **off**. (It counts individual samples, not days, and will silently truncate your totals.)
 2. **Repeat with Each** — make sure it repeats over **Health Samples** (it usually connects automatically).
 3. Inside the repeat block, add a **Text** action. In the text box, build one line with two parts separated by the `|` character (type the `|` yourself):
    - Tap **Repeat Item** in the variable bar above the keyboard to insert it, then tap the inserted variable and set its property to **Start Date**. Tap it once more and set **Date Format: Custom**, with the format string exactly `MMM dd` (this produces dates like `Feb 02`, matching the sheet).
@@ -89,9 +90,9 @@ Your phone now uploads your minutes every day on its own. Each run covers the la
 
 To fill in history retrospectively (for example when you first set this up):
 
-1. Edit the Shortcut and change the **Limit** in *Find Health Samples* from 7 to **100** (or however many days back you want to go).
+1. Edit the Shortcut and change the **Start Date** filter in *Find Health Samples* from the last **7** days to the last **100** days (or however far back you want to go).
 2. Run the Shortcut manually once.
-3. Change the limit back to 7.
+3. Change the filter back to 7 days.
 
 Every day whose date matches a row in the sheet gets written; dates with no matching row are skipped. Running it multiple times is harmless — rows are overwritten with the same values, not duplicated. Each member backfills independently; nobody's upload touches anyone else's column.
 
@@ -122,7 +123,8 @@ The number of days fetched per run is set by the **Limit** in the Shortcut's *Fi
 
 - **"Updated 0 row(s)"** — the dates didn't match any value in column B. Check that column B shows dates exactly like `Feb 02` (zero-padded day, matching `MMM dd`).
 - **"Error: invalid token"** — the token in the Shortcut URL doesn't match any entry in the `USERS` map. Check for typos, and if the member was just added, make sure a **new version** was deployed.
-- **Minutes look far too small** — the *Find Health Samples* action is missing **Group By: Day**, so the limit is counting individual samples instead of days. Set Group By and re-run.
+- **Minutes look far too small** — the *Find Health Samples* action has **Limit** turned on, or is missing **Group By: Day**. Limit counts individual samples (roughly one per minute of exercise), not days, so it silently truncates totals — turn it off and use the Start Date filter to control the window instead.
+- **Minutes look higher than your workouts** — that's expected: exercise minutes count *all* movement at or above a brisk walk throughout the day (stairs, hurried walking), not just workout sessions.
 - **Minutes land in the wrong column** — two members are using the same token, or the column number in `USERS` is wrong. Each member's token must be unique.
 - **Response looks like an HTML page or an error about `doPost`** — the deployment is stale or the URL is wrong; make sure you're using the `/exec` URL from an active Web app deployment, and re-deploy a new version after any code edit.
 - **The nightly automation didn't run** — the phone was likely off or offline. The next run backfills automatically since it always sends the last 7 days.
