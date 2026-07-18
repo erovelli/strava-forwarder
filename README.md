@@ -19,7 +19,7 @@ Because the sheet cells are always recomputed from the log, every delivery is sa
 
 ## Who Sets Up What
 
-The **sheet owner** does the one-time script setup (Part 1) and gives every member two things: a link to the shared Shortcut and that member's personal token. Each **member** only does the phone setup (Parts 2–3) — no Google account access, no code, nothing to install beyond the Shortcut. Members don't even need edit access to the spreadsheet; the script writes on the owner's behalf.
+The **sheet owner** does the one-time script setup (Part 1) and gives every member two things: the script's web address and that member's personal token. Each **member** only builds one small automation on their iPhone (Part 2) — no Google account access, no code, nothing to install. Members don't even need edit access to the spreadsheet; the script writes on the owner's behalf.
 
 ---
 
@@ -49,35 +49,27 @@ The **sheet owner** does the one-time script setup (Part 1) and gives every memb
 
 > On its first run the script creates a hidden worksheet named **Forwarder Log** — that's its memory of every workout received. Leave it alone. (Deleting it won't break anything, but previously received workouts could then be double-counted if re-sent, and cells rewrite from an empty history.)
 
-## Part 2 — Build the Shortcut (each member, on their iPhone)
+## Part 2 — Create the automation (each member, on their iPhone)
 
-> If someone in the group has already built this Shortcut, ask them to share it with you (long-press the Shortcut → **Share**) — then you only need to import it, replace the token in the URL with your own, and skip to Part 3.
+Everything on the phone is one automation containing two actions. The actions **must be built inside the automation itself** — a standalone shortcut can't be told its input is a workout (Health data isn't a share-sheet type), so the workout properties only appear in the automation's own editor. Automations also can't be shared between phones the way shortcuts can, so each member builds it by hand — it's a few minutes with these steps:
 
-Open the **Shortcuts** app, tap **+** to create a new shortcut, name it **Health Forwarder**, and add these two actions (use the search bar to find each one):
-
-1. A **Text** action. In the text box, build one line with four parts separated by the `|` character (type the three `|` characters yourself), using the **Shortcut Input** variable from the variable bar above the keyboard:
+1. Open the **Shortcuts** app, go to the **Automation** tab, and tap **+**.
+2. Choose the **Apple Watch Workout** trigger (on some iOS versions it's just **Workout**), set it to fire when a workout **Ends**, and select **Run Immediately** so it never asks for confirmation. Tap **Next**.
+3. On the screen that asks what to run, choose **New Blank Automation** — an empty action editor opens that belongs to this automation.
+4. Add a **Text** action (use the search bar to find it). In the text box, build one line with four parts separated by the `|` character (type the three `|` characters yourself), using the **Shortcut Input** variable from the variable bar above the keyboard. Because this editor is inside the workout automation, tapping the inserted variable offers workout properties:
    - Insert **Shortcut Input** and set its property to **Workout Type**.
    - Type `|`, insert **Shortcut Input** again, and set its property to **Start Date**. Tap it once more and set **Date Format: Custom**, with the format string exactly `MMM dd` (this produces dates like `Feb 02`, matching the sheet).
    - Type `|`, insert **Shortcut Input** again, and set its property to **Duration**.
    - Type `|`, insert **Shortcut Input** one last time, set its property to **Start Date**, and give it the custom date format `HH:mm`. (This start time is how the system tells two same-named workouts on one day apart.)
-2. **Get Contents of URL**:
+5. Add **Get Contents of URL**:
    - In the URL field, paste the Web app URL from the sheet owner and add **your personal token** to the end, like this:
      `https://script.google.com/macros/s/…/exec?token=evan-x7f2`
    - Tap the arrow to expand the action. Set **Method: POST**.
    - Under **Request Body**, choose **File** and select the **Text** variable.
-3. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Recorded 1 new workout(s)…" confirmation each time.
+6. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Recorded 1 new workout(s)…" confirmation each time.
+7. Save the automation, then finish a short test workout — even a 1-minute walk. The activity and minutes should appear on today's row within a few seconds. The first run will ask permission to contact `script.google.com` — allow it.
 
-The Shortcut receives the finished workout from the automation you'll create next, so running it by hand from the Shortcuts app sends nothing (the input is empty and the server ignores it) — test it by recording a real workout, even a 1-minute one.
-
-## Part 3 — Make it run whenever a workout ends
-
-1. In the Shortcuts app, go to the **Automation** tab and tap **+**.
-2. Choose the **Apple Watch Workout** trigger (on some iOS versions it's just **Workout**), and set it to fire when a workout **Ends**.
-3. Select **Run Immediately** so it doesn't ask for confirmation, and choose the **Health Forwarder** shortcut.
-
-Now finish a short test workout and check the sheet: the activity and minutes should appear on today's row within a few seconds. The first run will ask permission to contact `script.google.com` — allow it.
-
-## Part 4 — Backfilling history (optional, for anyone comfortable with a terminal)
+## Part 3 — Backfilling history (optional, for anyone comfortable with a terminal)
 
 The automation only records workouts from the moment it's set up. To also fill in past workouts, use the included [`backfill.py`](backfill.py) — it reads the export file every iPhone can produce and posts each historical workout through the same endpoint, so duplicates are impossible and it's safe to re-run:
 
@@ -121,7 +113,8 @@ Constants at the top of `Code.gs` (remember to deploy a **new version** after ed
 - **The automation never fires** — it triggers on workouts tracked live (Apple Watch, or the iPhone's own workout tracking). Workouts typed into Health/Fitness manually after the fact don't trigger it; use `backfill.py` to sweep those in.
 - **"Recorded 0 new workout(s)"** — the workout was already received earlier (a repeat delivery); the sheet is unchanged, which is exactly right.
 - **"…updated 0 row(s)"** — the workout's date didn't match any value in column B. Check that column B shows dates exactly like `Feb 02` (zero-padded day, matching `MMM dd`), and note that the phone's language affects month names — a phone not set to English writes months the sheet won't match.
-- **"Error: invalid token"** — the token in the Shortcut URL doesn't match any entry in the `USERS` map. Check for typos, and if the member was just added, make sure a **new version** was deployed.
+- **"Error: invalid token"** — the token in the automation's URL doesn't match any entry in the `USERS` map. Check for typos, and if the member was just added, make sure a **new version** was deployed.
+- **Tapping Shortcut Input offers file/media types instead of workout properties** — the actions were built in a standalone shortcut instead of inside the automation. The input is only recognized as a workout in the automation's own editor: recreate the two actions via **New Blank Automation** (Part 2, step 3).
 - **Workouts land in the wrong columns** — two members are using the same token, or the column number in `USERS` is wrong. Each member's token must be unique.
 - **A day's cell looks wrong and won't fix itself** — the source of truth is the hidden **Forwarder Log** sheet (unhide it via the sheet tabs). Deleting a bad log row and re-sending any workout for that date rewrites the cells.
 - **Response looks like an HTML page or an error about `doPost`** — the deployment is stale or the URL is wrong; make sure you're using the `/exec` URL from an active Web app deployment, and re-deploy a new version after any code edit.
