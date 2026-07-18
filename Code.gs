@@ -7,19 +7,31 @@
  *
  *   Outdoor Run|Feb 02|43
  *   (workout type | sheet date | duration in minutes)
+ *
+ * The sheet owner deploys this script once. Each user posts with their own
+ * secret token, which doubles as their identity: it selects the column pair
+ * their workouts are written to.
  */
 
 // --- Configuration ---
 
-const TOKEN = "change-me"; // set your own secret; must match the Shortcut URL
+// One entry per user: their secret token mapped to the column number where
+// their activity names go (durations go in the next column over; G = 7).
+// Invent a unique token per person and hand it to them privately. After
+// editing this map, deploy a new version for the change to take effect.
+const USERS = {
+  "change-me-1": 7, // columns G/H
+  "change-me-2": 9, // columns I/J
+};
+
 const WORKSHEET_NAME = "Tracker";
 const DATE_COLUMN = 2; // column B: dates formatted like "Feb 02"
-const NAME_COLUMN = 7; // column G: activity name (duration goes in the next column)
 
 // --- Web app entry point ---
 
 function doPost(e) {
-  if (!e.parameter || e.parameter.token !== TOKEN) {
+  const nameColumn = e.parameter ? USERS[e.parameter.token] : undefined;
+  if (!nameColumn) {
     return reply("Error: invalid token");
   }
 
@@ -28,7 +40,7 @@ function doPost(e) {
     return reply("Error: no workouts found in request body");
   }
 
-  const updated = writeWorkouts(workouts);
+  const updated = writeWorkouts(workouts, nameColumn);
   return reply("Updated " + updated + " row(s) in " + WORKSHEET_NAME);
 }
 
@@ -49,7 +61,7 @@ function parseWorkouts(body) {
     });
 }
 
-function writeWorkouts(workouts) {
+function writeWorkouts(workouts, nameColumn) {
   const sheet =
     SpreadsheetApp.getActiveSpreadsheet().getSheetByName(WORKSHEET_NAME);
   const dates = sheet
@@ -68,7 +80,7 @@ function writeWorkouts(workouts) {
     const day = byRow[row];
     const names = day.map(function (w) { return w.name; }).join(", ");
     const total = day.reduce(function (sum, w) { return sum + w.minutes; }, 0);
-    sheet.getRange(Number(row), NAME_COLUMN, 1, 2).setValues([[names, total]]);
+    sheet.getRange(Number(row), nameColumn, 1, 2).setValues([[names, total]]);
   });
 
   return Object.keys(byRow).length;
