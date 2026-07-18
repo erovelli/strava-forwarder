@@ -2,24 +2,20 @@
 
 *(formerly strava-forwarder)*
 
-Automatically forwards daily exercise minutes from Apple Health to a shared Google Sheet, for group accountability trackers. Every day, an iPhone Shortcut reads each person's Exercise Minutes straight from Apple Health and sends them to a small script attached to the Google Sheet, which fills in the matching date row — in that person's own column.
+Automatically forwards Apple Watch / iPhone workouts to a shared Google Sheet, for group accountability trackers. The moment a workout ends, an iPhone automation sends its activity type and duration to a small script attached to the Google Sheet, which fills them into the matching date row — in that person's own columns.
 
-Everything in this setup is **completely free**: no Strava account, no server, no subscriptions. Exercise data goes only from each person's phone to the group's Google Sheet.
+Everything in this setup is **completely free**: no Strava account, no server, no subscriptions. Workout data goes only from each person's phone to the group's Google Sheet.
 
-> **Why the change?** Earlier versions of this project pulled workout names and durations from the Strava API using a Python script on a server. Strava has since gated API access behind premium accounts, so the data now comes directly from Apple Health instead — which also removes the need for a server entirely. The old Python version is preserved as [release v1.0.0](../../releases/tag/v1.0.0).
->
-> One trade-off: Apple's built-in Shortcuts actions can read Health *metrics* (like Exercise Minutes) but not individual workout records, so the sheet now tracks **minutes per day** rather than named activities. A notes column next to each person's minutes is a nice manual complement.
+> **Why the change?** Earlier versions of this project pulled workouts from the Strava API using a Python script on a server. Strava has since gated API access behind premium accounts, so workouts now come directly from Apple Health instead — which also removes the need for a server entirely. The old Python version is preserved as [release v1.0.0](../../releases/tag/v1.0.0).
 
 ## How It Works
 
-1. Your Apple Watch (or iPhone) tracks exercise, which lands in Apple Health as Exercise Minutes.
-2. Once a day, an automation runs a Shortcut on your iPhone that reads your recent daily Exercise Minute totals from Apple Health.
-3. The Shortcut sends them to a small Google Apps Script attached to the group's Google Sheet, along with your personal token.
-4. The script recognizes you by your token, finds the row matching each date, and writes that day's total minutes into **your** column.
+1. You finish a workout on your Apple Watch (or iPhone).
+2. A Shortcuts automation fires with that workout as its input, and sends the activity type, date, minutes, and start time to a small Google Apps Script attached to the group's Google Sheet — along with your personal token.
+3. The script recognizes you by your token and appends the workout to a hidden log worksheet. Workouts it has already seen are ignored, so nothing is ever double-counted.
+4. It then rewrites **your** cells on the matching date row from the log: all of that day's activity names, comma-separated and in order, plus the summed minutes.
 
-Re-sending the same days is always safe: rows are matched by date and overwritten, never appended. This means you can also **backfill retrospectively** — set the Shortcut to fetch 100 days instead of 7, run it once, and every matching date row gets filled in.
-
-> **What counts as "exercise minutes"?** This is the number behind Apple's green Exercise ring: minutes of movement at or above a brisk walk, from workouts and everyday activity alike. It can differ slightly from a workout's elapsed time (a 60-minute gym session might credit 52 exercise minutes).
+Because the sheet cells are always recomputed from the log, every delivery is safe: a second workout on the same day joins the first instead of replacing it, and repeated deliveries of the same workout change nothing.
 
 ## Who Sets Up What
 
@@ -32,80 +28,82 @@ The **sheet owner** does the one-time script setup (Part 1) and gives every memb
 1. Open the Google Sheet in a browser.
 2. In the menu, click **Extensions → Apps Script**. A code editor opens in a new tab.
 3. Delete any code already in the editor, then copy the entire contents of [`Code.gs`](Code.gs) from this repository and paste it in.
-4. Edit the `USERS` map near the top: one line per group member. For each person, invent a unique secret token (like a password — letters, numbers, and dashes; no spaces) and set the column number where their exercise minutes should go. Column numbers: A=1, B=2, … H=8, and so on. For example:
+4. Edit the `USERS` map near the top: one line per group member. For each person, invent a unique secret token (like a password — letters, numbers, and dashes; no spaces) and set the column number where their activity names should go; their minutes are always written to the next column over. Column numbers: A=1, B=2, … G=7, and so on. Skip over any extra per-person columns your sheet has (weekly counts, notes) — the script only ever touches the two columns starting at the number you give. For example:
 
    ```javascript
    const USERS = {
-     "erik-x7f2":  8,   // Erik  → column H
-     "sam-p9k1":  10,   // Sam   → column J
-     "dana-m3q8": 12,   // Dana  → column L
+     "evan-x7f2":  7,   // Evan  → names in G, minutes in H
+     "sam-p9k1":  10,   // Sam   → names in J, minutes in K
+     "dana-m3q8": 13,   // Dana  → names in M, minutes in N
    };
    ```
 5. Click the **Deploy** button (top right) → **New deployment**.
 6. Click the gear icon next to "Select type" and choose **Web app**.
 7. Set **Execute as: Me** and **Who has access: Anyone**, then click **Deploy**.
 
-   > "Anyone" only means anyone *with the exact URL and a valid token* can submit data — the URL is unguessable and each token only reaches its own column. The sheet's own sharing settings are unaffected.
+   > "Anyone" only means anyone *with the exact URL and a valid token* can submit workouts — the URL is unguessable and each token only reaches its own columns. The sheet's own sharing settings are unaffected.
 8. Google will ask you to authorize the script. Click **Authorize access**, pick your account, and if you see a warning that the app isn't verified, click **Advanced → Go to (project name) (unsafe)** → **Allow**. This warning appears because you wrote the script yourself; you are authorizing your own code.
 9. Copy the **Web app URL** it gives you (it ends in `/exec`). Send each member the URL and *their* token, privately.
 
 > **Adding a member or editing the code later:** changes don't go live until you click **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**. This is the most commonly missed step in Apps Script. The URL stays the same.
 
+> On its first run the script creates a hidden worksheet named **Forwarder Log** — that's its memory of every workout received. Leave it alone. (Deleting it won't break anything, but previously received workouts could then be double-counted if re-sent, and cells rewrite from an empty history.)
+
 ## Part 2 — Build the Shortcut (each member, on their iPhone)
 
 > If someone in the group has already built this Shortcut, ask them to share it with you (long-press the Shortcut → **Share**) — then you only need to import it, replace the token in the URL with your own, and skip to Part 3.
 
-Open the **Shortcuts** app, tap **+** to create a new shortcut, name it **Health Forwarder**, and add these actions in order (use the search bar to find each one):
+Open the **Shortcuts** app, tap **+** to create a new shortcut, name it **Health Forwarder**, and add these two actions (use the search bar to find each one):
 
-1. **Find Health Samples**
-   - Tap the pale blue **Type** field and choose **Exercise Minutes**.
-   - Tap **Add Filter** and set **Start Date** · **is in the last** · **7** · **days** (the last week — days already uploaded are harmlessly re-written). Use a bigger number like **100** to backfill history — see Part 4.
-   - Check that **Unit** is **min**.
-   - Set **Group By: Day** — this is essential; it turns the raw samples into one total per day.
-   - Leave **Limit** turned **off**. (It counts individual samples, not days, and will silently truncate your totals.)
-2. **Repeat with Each** — make sure it repeats over **Health Samples** (it usually connects automatically).
-3. Inside the repeat block, add a **Text** action. In the text box, build one line with two parts separated by the `|` character (type the `|` yourself):
-   - Tap **Repeat Item** in the variable bar above the keyboard to insert it, then tap the inserted variable and set its property to **Start Date**. Tap it once more and set **Date Format: Custom**, with the format string exactly `MMM dd` (this produces dates like `Feb 02`, matching the sheet).
-   - Type `|`, then insert **Repeat Item** again and set its property to **Value** (the day's total minutes).
-4. Still inside the repeat block, add **Add to Variable**, set the input to the **Text** from the previous step, and name the variable `Lines`.
-5. After the repeat block ends, add **Combine Text**: combine **Lines**, separator **New Lines**.
-6. Add **Get Contents of URL**:
+1. A **Text** action. In the text box, build one line with four parts separated by the `|` character (type the three `|` characters yourself), using the **Shortcut Input** variable from the variable bar above the keyboard:
+   - Insert **Shortcut Input** and set its property to **Workout Type**.
+   - Type `|`, insert **Shortcut Input** again, and set its property to **Start Date**. Tap it once more and set **Date Format: Custom**, with the format string exactly `MMM dd` (this produces dates like `Feb 02`, matching the sheet).
+   - Type `|`, insert **Shortcut Input** again, and set its property to **Duration**.
+   - Type `|`, insert **Shortcut Input** one last time, set its property to **Start Date**, and give it the custom date format `HH:mm`. (This start time is how the system tells two same-named workouts on one day apart.)
+2. **Get Contents of URL**:
    - In the URL field, paste the Web app URL from the sheet owner and add **your personal token** to the end, like this:
-     `https://script.google.com/macros/s/…/exec?token=erik-x7f2`
+     `https://script.google.com/macros/s/…/exec?token=evan-x7f2`
    - Tap the arrow to expand the action. Set **Method: POST**.
-   - Under **Request Body**, choose **File** and select the **Combined Text** variable.
-7. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Updated 7 row(s) in Tracker" confirmation each run.
+   - Under **Request Body**, choose **File** and select the **Text** variable.
+3. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Recorded 1 new workout(s)…" confirmation each time.
 
-Tap the Shortcut's ▶︎ button to test it. The first run asks for permission to access your Health data (allow **Exercise Minutes**) and to contact `script.google.com` — allow both. Then check the sheet: the last week's rows should show your minutes, in your column.
+The Shortcut receives the finished workout from the automation you'll create next, so running it by hand from the Shortcuts app sends nothing (the input is empty and the server ignores it) — test it by recording a real workout, even a 1-minute one.
 
-## Part 3 — Run it automatically every day
+## Part 3 — Make it run whenever a workout ends
 
 1. In the Shortcuts app, go to the **Automation** tab and tap **+**.
-2. Choose **Time of Day**, pick a time late in the day (e.g. 9:00 PM, so the day's exercise is mostly in), set it to **Daily**, and select **Run Immediately** so it doesn't ask for confirmation.
-3. Choose the **Health Forwarder** shortcut.
+2. Choose the **Apple Watch Workout** trigger (on some iOS versions it's just **Workout**), and set it to fire when a workout **Ends**.
+3. Select **Run Immediately** so it doesn't ask for confirmation, and choose the **Health Forwarder** shortcut.
 
-Your phone now uploads your minutes every day on its own. Each run covers the last 7 days, so a day when the phone was off or offline is backfilled automatically by the next successful run — and today's partial total is corrected by tomorrow's run.
+Now finish a short test workout and check the sheet: the activity and minutes should appear on today's row within a few seconds. The first run will ask permission to contact `script.google.com` — allow it.
 
-## Part 4 — Backfilling past days
+## Part 4 — Backfilling history (optional, for anyone comfortable with a terminal)
 
-To fill in history retrospectively (for example when you first set this up):
+The automation only records workouts from the moment it's set up. To also fill in past workouts, use the included [`backfill.py`](backfill.py) — it reads the export file every iPhone can produce and posts each historical workout through the same endpoint, so duplicates are impossible and it's safe to re-run:
 
-1. Edit the Shortcut and change the **Start Date** filter in *Find Health Samples* from the last **7** days to the last **100** days (or however far back you want to go).
-2. Run the Shortcut manually once.
-3. Change the filter back to 7 days.
+1. On the iPhone: **Health app → tap your picture (top right) → Export All Health Data**, then share `export.zip` to a computer (AirDrop works well).
+2. On the computer (any machine with Python 3, no packages needed):
 
-Every day whose date matches a row in the sheet gets written; dates with no matching row are skipped. Running it multiple times is harmless — rows are overwritten with the same values, not duplicated. Each member backfills independently; nobody's upload touches anyone else's column.
+   ```bash
+   python3 backfill.py export.zip 'https://script.google.com/macros/s/…/exec' YOUR-TOKEN 2026-01-01
+   ```
+
+   The last argument limits how far back to go and can be omitted to send everything.
+
+Workouts whose date doesn't match a row in the sheet are skipped, so an export spanning longer than the tracker is harmless.
 
 ## Google Sheet Format
 
-The worksheet must have dates pre-populated in column B using the format `MMM dd` with a zero-padded day (e.g., `Feb 02`). The date column is shared by everyone; each member has their own minutes column, assigned in the `USERS` map. The column next to each member's minutes makes a good spot for hand-written notes ("5k run", "leg day") — the script never touches it.
+The worksheet must have dates pre-populated in column B using the format `MMM dd` with a zero-padded day (e.g., `Feb 02`). The date column is shared by everyone; each member has their own adjacent pair of columns — activity names and minutes — assigned in the `USERS` map. Any other columns (weekly tallies, notes) are never touched by the script.
 
 | Column | Content |
 |--------|---------|
 | B | Date (`Feb 02`) — shared |
-| H | Member 1: exercise minutes (G free for notes) |
-| J | Member 2: exercise minutes (I free for notes) |
-| … | one column per member |
+| G / H | Member 1: activity names / total minutes |
+| J / K | Member 2: activity names / total minutes |
+| … | one pair per member |
+
+Multiple workouts on the same date appear as one comma-separated list of names, in start-time order, with their minutes summed.
 
 ## Configuration
 
@@ -113,19 +111,17 @@ Constants at the top of `Code.gs` (remember to deploy a **new version** after ed
 
 | Constant | Default | Description |
 |----------|---------|-------------|
-| `USERS` | *(examples)* | Map of each member's secret token to the column number for their exercise minutes |
+| `USERS` | *(examples)* | Map of each member's secret token to the column number for their activity names; minutes go in the next column over |
 | `WORKSHEET_NAME` | `"Tracker"` | Name of the worksheet tab to write to |
 | `DATE_COLUMN` | `2` (column B) | Column containing the `MMM dd` dates |
-
-The number of days fetched per run is set by the **Limit** in the Shortcut's *Find Health Samples* action.
+| `LOG_SHEET_NAME` | `"Forwarder Log"` | Name of the hidden log worksheet the script maintains |
 
 ## Troubleshooting
 
-- **"Updated 0 row(s)"** — the dates didn't match any value in column B. Check that column B shows dates exactly like `Feb 02` (zero-padded day, matching `MMM dd`).
+- **The automation never fires** — it triggers on workouts tracked live (Apple Watch, or the iPhone's own workout tracking). Workouts typed into Health/Fitness manually after the fact don't trigger it; use `backfill.py` to sweep those in.
+- **"Recorded 0 new workout(s)"** — the workout was already received earlier (a repeat delivery); the sheet is unchanged, which is exactly right.
+- **"…updated 0 row(s)"** — the workout's date didn't match any value in column B. Check that column B shows dates exactly like `Feb 02` (zero-padded day, matching `MMM dd`), and note that the phone's language affects month names — a phone not set to English writes months the sheet won't match.
 - **"Error: invalid token"** — the token in the Shortcut URL doesn't match any entry in the `USERS` map. Check for typos, and if the member was just added, make sure a **new version** was deployed.
-- **Minutes look far too small** — the *Find Health Samples* action has **Limit** turned on, or is missing **Group By: Day**. Limit counts individual samples (roughly one per minute of exercise), not days, so it silently truncates totals — turn it off and use the Start Date filter to control the window instead.
-- **Minutes look higher than your workouts** — that's expected: exercise minutes count *all* movement at or above a brisk walk throughout the day (stairs, hurried walking), not just workout sessions.
-- **Minutes land in the wrong column** — two members are using the same token, or the column number in `USERS` is wrong. Each member's token must be unique.
+- **Workouts land in the wrong columns** — two members are using the same token, or the column number in `USERS` is wrong. Each member's token must be unique.
+- **A day's cell looks wrong and won't fix itself** — the source of truth is the hidden **Forwarder Log** sheet (unhide it via the sheet tabs). Deleting a bad log row and re-sending any workout for that date rewrites the cells.
 - **Response looks like an HTML page or an error about `doPost`** — the deployment is stale or the URL is wrong; make sure you're using the `/exec` URL from an active Web app deployment, and re-deploy a new version after any code edit.
-- **The nightly automation didn't run** — the phone was likely off or offline. The next run backfills automatically since it always sends the last 7 days.
-- **A day shows fewer minutes than expected** — exercise minutes are Apple's green-ring metric (movement at or above a brisk walk), not workout elapsed time; gentler activity credits fewer minutes.
