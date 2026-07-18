@@ -17,6 +17,8 @@ Everything in this setup is **completely free**: no Strava account, no server, n
 
 Because the sheet cells are always recomputed from the log, every delivery is safe: a second workout on the same day joins the first instead of replacing it, and repeated deliveries of the same workout change nothing.
 
+Deliveries are also self-healing. The automation writes each workout to a small **outbox** file and sends the whole outbox, clearing it only after a successful reply — so if the phone had no signal when a workout ended, that workout simply rides along with the next one. Since repeats are ignored server-side, re-sending is always safe.
+
 ## Who Sets Up What
 
 The **sheet owner** does the one-time script setup (Part 1) and gives every member two things: the script's web address and that member's personal token. Each **member** only builds one small automation on their iPhone (Part 2) — no Google account access, no code, nothing to install. Members don't even need edit access to the spreadsheet; the script writes on the owner's behalf.
@@ -61,17 +63,22 @@ Everything on the phone is one automation containing two actions. The actions **
    - Type `|`, insert **Shortcut Input** again, and set its property to **Start Date**. Tap it once more and set **Date Format: Custom**, with the format string exactly `MMM dd` (this produces dates like `Feb 02`, matching the sheet).
    - Type `|`, insert **Shortcut Input** again, and set its property to **Duration**.
    - Type `|`, insert **Shortcut Input** one last time, set its property to **Start Date**, and give it the custom date format `HH:mm`. (This start time is how the system tells two same-named workouts on one day apart.)
-5. Add **Get Contents of URL**:
+5. Add **Append to Text File**: set the text to the **Text** variable from the previous step, the file path to `outbox.txt` (in the default Shortcuts folder), and turn **Make New Line** on. This is the outbox — it holds any workout that couldn't be sent yet.
+6. Add **Get File**: same folder, **File Path** `outbox.txt`.
+7. Add **Get Contents of URL**:
    - In the URL field, paste the Web app URL from the sheet owner and add **your personal token** to the end, like this:
      `https://script.google.com/macros/s/…/exec?token=evan-x7f2`
    - Tap the arrow to expand the action. Set **Method: POST**.
-   - Under **Request Body**, choose **File** and select the **Text** variable.
-6. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Recorded 1 new workout(s)…" confirmation each time.
-7. Save the automation, then finish a short test workout — even a 1-minute walk. The activity and minutes should appear on today's row within a few seconds. The first run will ask permission to contact `script.google.com` — allow it.
+   - Under **Request Body**, choose **File** and select the **File** variable from the *Get File* step (the whole outbox, not just today's Text).
+8. Add **Delete Files**: set it to delete the **File** from the *Get File* step, and turn **Ask Before Deleting** off. Because this step only runs when the upload succeeded, a failed upload (phone offline, no signal at the gym) leaves the outbox intact — it's re-sent automatically with the next workout, and the server ignores anything it already has.
+9. *(Optional)* Add **Show Notification** with the **Contents of URL** as its text, so you get a "Recorded 1 new workout(s)…" confirmation each time.
+10. Save the automation, then finish a short test workout — even a 1-minute walk. The activity and minutes should appear on today's row within a few seconds. The first run will ask permission to access files and to contact `script.google.com` — allow both.
 
-## Part 3 — Backfilling history (optional, for anyone comfortable with a terminal)
+## Part 3 — Importing history from before setup (optional, one time)
 
-The automation only records workouts from the moment it's set up. To also fill in past workouts, use the included [`backfill.py`](backfill.py) — it reads the export file every iPhone can produce and posts each historical workout through the same endpoint, so duplicates are impossible and it's safe to re-run:
+This part is not needed for normal operation — thanks to the outbox, the automation catches up on its own after missed uploads. It exists only for **workouts that happened before the automation was set up**, which nothing on the phone can reach (iOS offers no way to query past workout records). If the group is happy starting the tracker from today, skip this entirely.
+
+To import pre-existing history, use the included [`backfill.py`](backfill.py) — it reads the export file every iPhone can produce and posts each historical workout through the same endpoint, so duplicates are impossible and it's safe to re-run:
 
 1. On the iPhone: **Health app → tap your picture (top right) → Export All Health Data**, then share `export.zip` to a computer (AirDrop works well).
 2. On the computer (any machine with Python 3, no packages needed):
@@ -112,6 +119,7 @@ Constants at the top of `Code.gs` (remember to deploy a **new version** after ed
 
 - **The automation never fires** — it triggers on workouts tracked live (Apple Watch, or the iPhone's own workout tracking). Workouts typed into Health/Fitness manually after the fact don't trigger it; use `backfill.py` to sweep those in.
 - **"Recorded 0 new workout(s)"** — the workout was already received earlier (a repeat delivery); the sheet is unchanged, which is exactly right.
+- **A missed workout showed up later, bundled with the next one** — that's the outbox catching up after the phone was offline. Working as intended.
 - **"…updated 0 row(s)"** — the workout's date didn't match any value in column B. Check that column B shows dates exactly like `Feb 02` (zero-padded day, matching `MMM dd`), and note that the phone's language affects month names — a phone not set to English writes months the sheet won't match.
 - **"Error: invalid token"** — the token in the automation's URL doesn't match any entry in the `USERS` map. Check for typos, and if the member was just added, make sure a **new version** was deployed.
 - **Tapping Shortcut Input offers file/media types instead of workout properties** — the actions were built in a standalone shortcut instead of inside the automation. The input is only recognized as a workout in the automation's own editor: recreate the two actions via **New Blank Automation** (Part 2, step 3).
