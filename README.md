@@ -90,15 +90,22 @@ The lines upload along with your next workout, deduplicated like everything else
 **For months of history**, typing lines by hand gets old — use the included [`backfill.py`](backfill.py) instead. It converts the export file every iPhone can produce into the same lines and posts them through the same endpoint, so duplicates are impossible and it's safe to re-run:
 
 1. On the iPhone: **Health app → tap your picture (top right) → Export All Health Data**, then share `export.zip` to a computer (AirDrop works well).
-2. On the computer (any machine with Python 3, no packages needed):
+2. On the computer (any machine with Python 3.9+, no packages needed):
 
    ```bash
-   python3 backfill.py export.zip 'https://script.google.com/macros/s/…/exec' YOUR-TOKEN 2026-01-01
+   python3 backfill.py export.zip 'https://script.google.com/macros/s/…/exec' YOUR-TOKEN
    ```
 
-   The last argument limits how far back to go and can be omitted to send everything.
+The script only ever sends workouts from the **current calendar year**, no matter how far back the export goes. This is deliberate: the sheet's date rows carry no year and the tracker is recreated each year, so an older year's "Jul 14" workout would otherwise be merged into this year's Jul 14 row. Within the current year, workouts whose date doesn't match a row in the sheet are skipped.
 
-Workouts whose date doesn't match a row in the sheet are skipped, so an export spanning longer than the tracker is harmless.
+## Yearly Rollover
+
+The tracker is recreated each year. Both ways of doing that are safe:
+
+- **A new spreadsheet each year** — repeat Part 1 in the new sheet (paste the script, set up `USERS`, deploy). This produces a **new Web app URL**, so each member updates the URL in their automation once a year; tokens can stay the same.
+- **Reusing the same spreadsheet** (clearing or replacing the Tracker rows for the new year) — nothing else changes and members keep the same URL. This is safe because the script stamps every log entry with the year it was received and only ever rewrites cells from the current year's entries, so last year's "Jul 14" can never bleed into this year's row.
+
+Either way, history for the new year starts accumulating from the automation as usual; `backfill.py` can sweep in anything from earlier in the current year.
 
 ## Google Sheet Format
 
