@@ -6,7 +6,11 @@
  * body is one workout, with fields separated by "|":
  *
  *   Climbing|Jul 14|43|18:32
- *   (activity type | sheet date | minutes | start time)
+ *   (activity type | sheet date | day's total minutes so far | entry time)
+ *
+ * The minutes field is cumulative for the day — the automation posts the
+ * day's activity total at each workout's end — so a date's cell shows the
+ * largest value received for it, while activity names accumulate per entry.
  *
  * Accepted workouts are appended to a log worksheet, and the visible cells
  * for that user and date are recomputed from the log. The log is what makes
@@ -137,7 +141,8 @@ function recordWorkouts(token, nameColumn, workouts) {
       .filter((w) => w.date === date)
       .sort((a, b) => a.start.localeCompare(b.start));
     const names = day.map((w) => w.name).join(", ");
-    const total = day.reduce((sum, w) => sum + w.minutes, 0);
+    // Minutes are day-cumulative, so the day's total is the largest value.
+    const total = day.reduce((max, w) => Math.max(max, w.minutes), 0);
     sheet.getRange(row, nameColumn, 1, 2).setValues([[names, total]]);
     updated++;
   }

@@ -47,26 +47,41 @@ def sheet_date(start: datetime) -> str:
     return f"{MONTHS[start.month - 1]} {start.day:02d}"
 
 
-def workout_lines(xml_file: IO[bytes], year: int) -> Iterator[str]:
-    """Yield one pipe-delimited line per workout that started in `year`."""
+def collect_workouts(xml_file: IO[bytes], year: int) -> list[tuple[datetime, str, float]]:
+    """Return (start, activity name, duration in minutes) per workout in `year`."""
+    workouts = []
     for _, elem in ElementTree.iterparse(xml_file):
         if elem.tag != "Workout":
             continue
         start = datetime.strptime(elem.get("startDate"), "%Y-%m-%d %H:%M:%S %z")
         if start.year == year:
-            minutes = round(float(elem.get("duration", "0")))  # durationUnit is "min"
             name = friendly_name(elem.get("workoutActivityType", "Workout"))
-            yield f"{name}|{sheet_date(start)}|{minutes}|{start:%H:%M}"
+            workouts.append((start, name, float(elem.get("duration", "0"))))
         elem.clear()
+    return workouts
+
+
+def workout_lines(workouts: list[tuple[datetime, str, float]]) -> Iterator[str]:
+    """Yield one line per workout, in start order.
+
+    The minutes field is the running total for the workout's day, mirroring
+    the phone automation (which posts the day's activity total at each
+    workout's end); the server shows the largest value received per date.
+    """
+    day_totals: dict[date, float] = {}
+    for start, name, minutes in sorted(workouts, key=lambda w: w[0]):
+        day = start.date()
+        day_totals[day] = day_totals.get(day, 0.0) + minutes
+        yield f"{name}|{sheet_date(start)}|{round(day_totals[day])}|{start:%H:%M}"
 
 
 def load_lines(export_path: str, year: int) -> list[str]:
     if export_path.endswith(".zip"):
         with zipfile.ZipFile(export_path) as archive:
             with archive.open(EXPORT_XML) as xml_file:
-                return list(workout_lines(xml_file, year))
+                return list(workout_lines(collect_workouts(xml_file, year)))
     with open(export_path, "rb") as xml_file:
-        return list(workout_lines(xml_file, year))
+        return list(workout_lines(collect_workouts(xml_file, year)))
 
 
 def post_lines(url: str, token: str, lines: list[str]) -> str:
