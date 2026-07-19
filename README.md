@@ -76,9 +76,18 @@ Everything on the phone is one automation containing two actions. The actions **
 
 ## Part 3 — Importing history from before setup (optional, one time)
 
-This part is not needed for normal operation — thanks to the outbox, the automation catches up on its own after missed uploads. It exists only for **workouts that happened before the automation was set up**, which nothing on the phone can reach (iOS offers no way to query past workout records). If the group is happy starting the tracker from today, skip this entirely.
+This part is not needed for normal operation — thanks to the outbox, the automation catches up on its own after missed uploads. It exists only for **workouts that happened before the automation was set up**, which the automation can never see (iOS offers no way to query past workout records). If the group is happy starting the tracker from today, skip this entirely.
 
-To import pre-existing history, use the included [`backfill.py`](backfill.py) — it reads the export file every iPhone can produce and posts each historical workout through the same endpoint, so duplicates are impossible and it's safe to re-run:
+**For a handful of past workouts, no computer is needed:** the outbox is an ordinary text file, so you can add history by hand. Open `outbox.txt` in the **Files** app (in the Shortcuts folder) and type one line per workout in the same format the automation writes — activity, sheet date, minutes, start time:
+
+```
+Climbing|Jul 12|45|18:00
+Outdoor Walk|Jul 10|38|07:30
+```
+
+The lines upload along with your next workout, deduplicated like everything else.
+
+**For months of history**, typing lines by hand gets old — use the included [`backfill.py`](backfill.py) instead. It converts the export file every iPhone can produce into the same lines and posts them through the same endpoint, so duplicates are impossible and it's safe to re-run:
 
 1. On the iPhone: **Health app → tap your picture (top right) → Export All Health Data**, then share `export.zip` to a computer (AirDrop works well).
 2. On the computer (any machine with Python 3, no packages needed):
