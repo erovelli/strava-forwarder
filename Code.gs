@@ -38,6 +38,16 @@ const LOG_SHEET_NAME = "Forwarder Log"; // created and hidden automatically
 // --- Web app entry point ---
 
 function doPost(e) {
+  try {
+    return handleRequest(e);
+  } catch (err) {
+    // Always answer in plain text: the Shortcut and backfill script parse
+    // the reply, and an uncaught throw would return Google's HTML error page.
+    return reply(`Error: ${err.message}`);
+  }
+}
+
+function handleRequest(e) {
   const nameColumn = e.parameter ? USERS[e.parameter.token] : undefined;
   if (!nameColumn) {
     return reply("Error: invalid token");
@@ -51,10 +61,9 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const result = recordWorkouts(e.parameter.token, nameColumn, workouts);
+    const { added, updated } = recordWorkouts(e.parameter.token, nameColumn, workouts);
     return reply(
-      "Recorded " + result.added + " new workout(s), updated " +
-      result.updated + " row(s) in " + WORKSHEET_NAME
+      `Recorded ${added} new workout(s), updated ${updated} row(s) in ${WORKSHEET_NAME}`
     );
   } finally {
     lock.releaseLock();
@@ -64,24 +73,21 @@ function doPost(e) {
 // --- Parsing ---
 
 function parseWorkouts(body) {
-  return body
-    .split("\n")
-    .map(parseLine)
-    .filter(function (workout) { return workout !== null; });
+  return body.split("\n").map(parseLine).filter(Boolean);
 }
 
 function parseLine(line) {
-  const parts = String(line).split("|").map(function (p) { return p.trim(); });
+  const parts = String(line).split("|").map((p) => p.trim());
   if (parts.length < 3 || !parts[0] || !parts[1]) return null;
   const minutes = Math.round(parseFloat(parts[2])) || 0;
   const start = parts[3] || "";
   return {
     name: parts[0],
     date: parts[1],
-    minutes: minutes,
-    start: start,
+    minutes,
+    start,
     // Canonical form used for duplicate detection in the log.
-    line: parts[0] + "|" + parts[1] + "|" + minutes + "|" + start,
+    line: `${parts[0]}|${parts[1]}|${minutes}|${start}`,
   };
 }
 
@@ -90,53 +96,53 @@ function parseLine(line) {
 function recordWorkouts(token, nameColumn, workouts) {
   const year = new Date().getFullYear();
   const doc = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = doc.getSheetByName(WORKSHEET_NAME);
+  if (!sheet) {
+    throw new Error(`worksheet "${WORKSHEET_NAME}" not found`);
+  }
+
   const log = doc.getSheetByName(LOG_SHEET_NAME) || createLog(doc);
   const logRows = log.getDataRange().getValues();
 
-  const seen = {};
-  logRows.forEach(function (r) { seen[logKey(r[0], r[3], r[1])] = true; });
-  const fresh = workouts.filter(function (w) {
-    return !seen[logKey(token, year, w.line)];
-  });
+  const seen = new Set(logRows.map((r) => logKey(r[0], r[3], r[1])));
+  const fresh = workouts.filter((w) => !seen.has(logKey(token, year, w.line)));
   if (fresh.length > 0) {
     const received = new Date();
-    log.getRange(log.getLastRow() + 1, 1, fresh.length, 4).setValues(
-      fresh.map(function (w) { return [token, w.line, received, year]; })
-    );
+    log
+      .getRange(log.getLastRow() + 1, 1, fresh.length, 4)
+      .setValues(fresh.map((w) => [token, w.line, received, year]));
   }
 
   // Recompute every date mentioned in this post from the current year's log
   // entries, so cells always reflect all of the day's workouts regardless of
   // delivery order — and never a previous year's workouts on the same date.
-  const postedDates = {};
-  workouts.forEach(function (w) { postedDates[w.date] = true; });
+  const postedDates = new Set(workouts.map((w) => w.date));
 
   const mine = logRows
-    .concat(fresh.map(function (w) { return [token, w.line, null, year]; }))
-    .filter(function (r) { return r[0] === token && Number(r[3]) === year; })
-    .map(function (r) { return parseLine(r[1]); })
-    .filter(function (w) { return w !== null && postedDates[w.date]; });
+    .concat(fresh.map((w) => [token, w.line, null, year]))
+    .filter((r) => r[0] === token && Number(r[3]) === year)
+    .map((r) => parseLine(r[1]))
+    .filter((w) => w && postedDates.has(w.date));
 
-  const sheet = doc.getSheetByName(WORKSHEET_NAME);
   const dates = sheet
     .getRange(1, DATE_COLUMN, sheet.getLastRow(), 1)
     .getDisplayValues()
-    .map(function (row) { return row[0]; });
+    .map(([d]) => d);
 
   let updated = 0;
-  Object.keys(postedDates).forEach(function (date) {
+  for (const date of postedDates) {
     const row = dates.indexOf(date) + 1;
-    if (row === 0) return; // no row for this date: skip
+    if (row === 0) continue; // no row for this date: skip
     const day = mine
-      .filter(function (w) { return w.date === date; })
-      .sort(function (a, b) { return a.start < b.start ? -1 : 1; });
-    const names = day.map(function (w) { return w.name; }).join(", ");
-    const total = day.reduce(function (sum, w) { return sum + w.minutes; }, 0);
+      .filter((w) => w.date === date)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    const names = day.map((w) => w.name).join(", ");
+    const total = day.reduce((sum, w) => sum + w.minutes, 0);
     sheet.getRange(row, nameColumn, 1, 2).setValues([[names, total]]);
     updated++;
-  });
+  }
 
-  return { added: fresh.length, updated: updated };
+  return { added: fresh.length, updated };
 }
 
 function createLog(doc) {
@@ -147,7 +153,7 @@ function createLog(doc) {
 }
 
 function logKey(token, year, line) {
-  return token + "|" + year + "|" + line;
+  return `${token}|${year}|${line}`;
 }
 
 function reply(message) {

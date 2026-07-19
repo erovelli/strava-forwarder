@@ -3,7 +3,7 @@
 
 The workout-ended automation only records workouts going forward. To fill in
 history, export your data from the Health app and feed it through the same
-endpoint the Shortcut uses:
+endpoint the automation uses:
 
   1. On the iPhone: Health app -> tap your picture -> Export All Health Data.
      Share the resulting export.zip to your computer (AirDrop, Files, ...).
@@ -19,14 +19,22 @@ Safe to re-run: the server logs every workout it has seen and ignores
 duplicates. Requires only the Python standard library (3.9+).
 """
 
+import argparse
 import re
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 from datetime import date, datetime
+from typing import IO, Iterator
 from xml.etree import ElementTree
 
+# English month abbreviations, hard-coded on purpose: the sheet's dates are
+# English, and locale-aware formatting would break the match on machines set
+# to another language.
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+
+EXPORT_XML = "apple_health_export/export.xml"
 
 
 def friendly_name(activity_type: str) -> str:
@@ -39,7 +47,8 @@ def sheet_date(start: datetime) -> str:
     return f"{MONTHS[start.month - 1]} {start.day:02d}"
 
 
-def workout_lines(xml_file, year: int):
+def workout_lines(xml_file: IO[bytes], year: int) -> Iterator[str]:
+    """Yield one pipe-delimited line per workout that started in `year`."""
     for _, elem in ElementTree.iterparse(xml_file):
         if elem.tag != "Workout":
             continue
@@ -51,29 +60,51 @@ def workout_lines(xml_file, year: int):
         elem.clear()
 
 
-def main() -> None:
-    if len(sys.argv) != 4:
-        sys.exit(__doc__)
-    export_path, url, token = sys.argv[1:4]
-    year = date.today().year
-
+def load_lines(export_path: str, year: int) -> list[str]:
     if export_path.endswith(".zip"):
         with zipfile.ZipFile(export_path) as archive:
-            with archive.open("apple_health_export/export.xml") as xml_file:
-                lines = list(workout_lines(xml_file, year))
-    else:
-        with open(export_path, "rb") as xml_file:
-            lines = list(workout_lines(xml_file, year))
+            with archive.open(EXPORT_XML) as xml_file:
+                return list(workout_lines(xml_file, year))
+    with open(export_path, "rb") as xml_file:
+        return list(workout_lines(xml_file, year))
+
+
+def post_lines(url: str, token: str, lines: list[str]) -> str:
+    request = urllib.request.Request(
+        f"{url}?token={token}", data="\n".join(lines).encode()
+    )
+    with urllib.request.urlopen(request) as response:
+        return response.read().decode()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("export", help="export.zip (or export.xml) from the Health app")
+    parser.add_argument("url", help="the script's Web app URL, ending in /exec")
+    parser.add_argument("token", help="your personal token from the sheet owner")
+    args = parser.parse_args()
+    year = date.today().year
+
+    try:
+        lines = load_lines(args.export, year)
+    except FileNotFoundError:
+        sys.exit(f"File not found: {args.export}")
+    except (zipfile.BadZipFile, KeyError):
+        sys.exit(f"{args.export} does not look like a Health export "
+                 f"(expected {EXPORT_XML} inside the zip)")
+    except ElementTree.ParseError as err:
+        sys.exit(f"Could not parse the export's XML: {err}")
 
     if not lines:
         sys.exit(f"No workouts from {year} found in the export.")
     print(f"Posting {len(lines)} workout(s) from {year}...")
 
-    request = urllib.request.Request(
-        f"{url}?token={token}", data="\n".join(lines).encode()
-    )
-    with urllib.request.urlopen(request) as response:
-        print(response.read().decode())
+    try:
+        print(post_lines(args.url, args.token, lines))
+    except urllib.error.URLError as err:
+        sys.exit(f"Upload failed: {getattr(err, 'reason', err)}")
 
 
 if __name__ == "__main__":
